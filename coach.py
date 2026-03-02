@@ -4,20 +4,21 @@ import garth
 import requests
 from garminconnect import Garmin
 from google import genai 
-from datetime import datetime, timezone, timedelta  # 🌟 新增時間模組
+from datetime import datetime, timezone, timedelta
 
 GARMIN_HASH = os.environ.get("GARMIN_HASH")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 LAST_ID_FILE = "last_activity_id.txt"
+MEMORY_FILE = "coach_memory.txt"  # 🧠 新增：教練的記憶備忘錄
 
 def send_discord_notify(message):
     chunks = [message[i:i+1900] for i in range(0, len(message), 1900)]
     for chunk in chunks:
         response = requests.post(DISCORD_WEBHOOK_URL, json={"content": chunk})
         if response.status_code not in [200, 204]:
-            raise Exception(f"Discord 傳送失敗，錯誤碼: {response.status_code}, 內容: {response.text}")
+            raise Exception(f"Discord 傳送失敗，錯誤碼: {response.status_code}")
 
 def main():
     try:
@@ -30,6 +31,12 @@ def main():
         if os.path.exists(LAST_ID_FILE):
             with open(LAST_ID_FILE, "r") as f:
                 last_id = f.read().strip()
+
+        # 🧠 讀取昨天的教練記憶
+        past_memory = "無過去記憶（這是教練上任的第一天，請根據當前數據建立基礎認知）。"
+        if os.path.exists(MEMORY_FILE):
+            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                past_memory = f.read().strip()
 
         print("🔍 2. 正在比對新紀錄...")
         activities = garmin_client.get_activities(0, 200)
@@ -44,7 +51,7 @@ def main():
             print("✅ 目前沒有新的運動紀錄。")
             return
         
-        print(f"🎉 發現 {len(new_records)} 筆新紀錄！正在執行資料瘦身...")
+        print(f"🎉 發現 {len(new_records)} 筆新紀錄！正在整理數據...")
         payloads = []
         act_names = []
         for act in new_records:
@@ -75,41 +82,63 @@ def main():
             payloads.append(slim_act)
             
         names_str = "、".join(act_names)
-        print(f"🧠 3. 正在呼叫 Gemini API 綜合分析 [{names_str}]...")
+        print(f"🧠 3. 正在喚醒具備記憶的 AI 教練 [{names_str}]...")
         ai_client = genai.Client(api_key=GEMINI_API_KEY)
         
-        # 🌟 取得台灣時間 (UTC+8) 的當下日期
         tw_tz = timezone(timedelta(hours=8))
         today_str = datetime.now(tw_tz).strftime("%Y年%m月%d日")
         
-        # 🧠 提示詞升級：加入今天日期，啟動賽事倒數邏輯！
+        # 🧠 終極 Prompt：強迫 AI 輸出兩種內容，並用分隔符號切開
         prompt = f"""
         今天是 {today_str}。你是一位專業的越野跑與馬拉松教練。這是我最新累積的 {len(new_records)} 筆 Garmin 運動數據：{names_str}。
-        考量我 161 cm 的身高，請深入分析我的「高階跑步動態與經濟性」：綜合評估步頻 (avg_cadence)、步距 (avg_stride_length)、垂直震幅 (avg_vertical_oscillation) 與 觸地時間 (avg_ground_contact_time, 單位:毫秒) 的搭配是否流暢，是否有過多能量浪費在上下彈跳或觸地過久。
-        
-        請根據今天的日期，推算距離我 4 月 12 日的 30km 越野賽（1721m 爬升）及 4 月 26 日的半馬還有多少時間，並給予符合當前訓練週期的步態微調與體能分配建議。
-        另外，為了避免高強度賽事引發腸胃不適，請建議好消化、不脹氣的賽中補給，並提供利用鈣、鎂等補充品幫助肌肉放鬆的賽後恢復策略。
-        
-        ⚠️ 限制：排版適合 Discord 閱讀（多用條列式與 Emoji），總字數盡量控制在 2000 字內。
+
+        【上次的教練交接日誌（過去記憶）】
+        {past_memory}
+
+        任務指示：
+        考量我 161 cm 的身高，請綜合評估我的高階跑步動態（步頻、步距、垂直震幅、觸地時間）。
+        請結合「上次的教練交接日誌」，判斷我目前的疲勞累積狀態，並推算距離 4 月 12 日的 30km 越野賽（1721m 爬升）及 4 月 26 日的半馬剩餘天數，給予符合當前週期的訓練建議。賽中補給需考量防脹氣好消化，賽後恢復請建議如何搭配鎂、鈣。
+
+        ⚠️ 輸出格式極度重要，請嚴格遵守以下結構（必須包含 ===MEMORY_START=== 分隔線）：
+
+        (這裡寫給跑者的 Discord 報告，多用條列式與 Emoji，總字數 2000 字內)
+        ===MEMORY_START===
+        (這裡寫給明天你自己的交接備忘錄：簡述目前的累積疲勞度、訓練週期狀態、以及下次需要特別關注的指標。限 300 字以內，不需對跑者說話，這是你的內部筆記)
+
         數據：{json.dumps(payloads, ensure_ascii=False)}
         """
         
-        response = ai_client.models.generate_content(model='gemini-3.1-pro-preview', contents=prompt)
+        response = ai_client.models.generate_content(model='gemini-2.5-pro', contents=prompt)
+        full_text = response.text
+
+        # 🧠 解析 AI 的回覆，把報告和記憶切開
+        if "===MEMORY_START===" in full_text:
+            report_part, new_memory = full_text.split("===MEMORY_START===")
+            report_part = report_part.strip()
+            new_memory = new_memory.strip()
+        else:
+            report_part = full_text.strip()
+            new_memory = "⚠️ 教練太累了忘記寫日誌，請根據最新數據與賽事倒數重新評估。"
+
+        print("📱 4. 正在發送報告並寫入教練記憶...")
+        send_discord_notify(f"🏃‍♂️ **AI 教練早安報告 ({today_str})：{names_str}**\n\n{report_part}")
         
-        print("📱 4. 正在將報告發送至 Discord...")
-        send_discord_notify(f"🏃‍♂️ **AI 教練綜合分析報告 ({today_str})：{names_str}**\n\n{response.text}")
-        
+        # 更新書籤
         with open(LAST_ID_FILE, "w") as f:
             f.write(str(new_records[0].get('activityId')))
-        print("✅ 大功告成！書籤已更新。")
+            
+        # 🧠 儲存新記憶
+        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+            f.write(new_memory)
+            
+        print("✅ 大功告成！Discord 已送出，教練記憶已存檔。")
 
     except Exception as e:
         print(f"❌ AI 教練執行失敗：{e}")
-        if "Discord 傳送失敗" not in str(e):
-            try:
-                send_discord_notify(f"❌ AI 教練執行失敗：{e}")
-            except:
-                pass
+        try:
+            send_discord_notify(f"❌ AI 教練執行失敗：{e}")
+        except:
+            pass
 
 if __name__ == "__main__":
     main()
