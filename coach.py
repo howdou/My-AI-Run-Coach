@@ -70,7 +70,7 @@ def main():
         if laps_data:
             for lap in laps_data:
                 row_list = [
-                    act_id,
+                    str(act_id), # 確保 ID 是字串格式
                     act_name,
                     format_pace(lap.get('averageSpeed', 0)),
                     format_pace(lap.get('avgGradeAdjustedSpeed', 0))
@@ -95,17 +95,21 @@ def main():
         # 開啟試算表與工作表
         sheet = client.open(SHEET_NAME).sheet1
         
-        # 檢查是否為空表，如果是，先寫入 Header
+        # 讀取現有資料
         existing_data = sheet.get_all_values()
+        
+        # 檢查是否為空表，如果是，先寫入 Header
         if not existing_data:
             sheet.append_row(fieldnames)
+            existing_ids = []
+        else:
+            # 🟢 防呆機制：確保這一個 row 裡面真的有資料 (長度 > 0)，才去抓 row[0]
+            existing_ids = [str(row[0]) for row in existing_data if len(row) > 0]
             
         # 檢查這筆 Activity_ID 是否已經寫入過，避免重複執行時重複寫入
-        if existing_data:
-            existing_ids = [row[0] for row in existing_data] # 假設 Activity_ID 在第 1 欄 (index 0)
-            if str(act_id) in existing_ids:
-                print(f"✅ 發現重複：活動 ID {act_id} 已經存在於試算表中，跳過寫入。")
-                return
+        if str(act_id) in existing_ids:
+            print(f"✅ 發現重複：活動 ID {act_id} 已經存在於試算表中，跳過寫入。")
+            return
 
         # 批次寫入所有圈數資料
         sheet.append_rows(rows_to_insert)
