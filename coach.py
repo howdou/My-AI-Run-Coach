@@ -1,17 +1,16 @@
 import os
 import json
 import garth
-import requests
 from garminconnect import Garmin
 from google import genai 
 from datetime import datetime, timezone, timedelta
 
 GARMIN_HASH = os.environ.get("GARMIN_HASH")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 LAST_ID_FILE = "last_activity_id.txt"
 MEMORY_FILE = "coach_memory.txt" 
+REPORT_FILE = "latest_report.md" # 新增：用來將報告存回 GitHub 的檔案
 
 # ==========================================
 # ❤️ 客製化 RQ 儲備心率區間 (Max 183, Rest 53)
@@ -24,13 +23,6 @@ CUSTOM_HR_ZONES = {
     "Z5_最大攝氧區 (95%+)": "177+ bpm"
 }
 # ==========================================
-
-def send_discord_notify(message):
-    chunks = [message[i:i+1900] for i in range(0, len(message), 1900)]
-    for chunk in chunks:
-        response = requests.post(DISCORD_WEBHOOK_URL, json={"content": chunk})
-        if response.status_code not in [200, 204]:
-            raise Exception(f"Discord 傳送失敗，錯誤碼: {response.status_code}")
 
 def main():
     try:
@@ -100,7 +92,6 @@ def main():
         tw_tz = timezone(timedelta(hours=8))
         today_str = datetime.now(tw_tz).strftime("%Y年%m月%d日")
         
-        # === 核心 Prompt 調整區 ===
         prompt = f"""
         今天是 {today_str}。你是一位專業的馬拉松教練。這是我最新累積的 {len(new_records)} 筆 Garmin 運動數據：{names_str}。
 
@@ -120,7 +111,7 @@ def main():
 
         ⚠️ 輸出格式極度重要，請嚴格遵守以下結構（必須包含 ===MEMORY_START=== 分隔線）：
 
-        (這裡寫給跑者的 Discord 報告，多用條列式與 Emoji，語氣專業但帶點鼓勵，總字數 2000 字內)
+        (這裡寫給跑者的訓練報告，多用條列式與 Markdown 格式，語氣專業但帶點鼓勵，總字數 2000 字內)
         ===MEMORY_START===
         (這裡寫給明天你自己的交接備忘錄：簡述目前的累積疲勞度、心率區間表現、以及下次需要特別關注的指標。限 300 字以內，不需對跑者說話，這是你的內部筆記)
 
@@ -138,8 +129,18 @@ def main():
             report_part = full_text.strip()
             new_memory = "⚠️ 教練太累了忘記寫日誌，請根據最新數據與賽事倒數重新評估。"
 
-        print("📱 4. 正在發送報告並寫入教練記憶...")
-        send_discord_notify(f"🏃‍♂️ **AI 教練早安報告 ({today_str})：{names_str}**\n\n{report_part}")
+        print("📱 4. 正在輸出報告並寫入檔案...")
+        
+        final_report = f"# 🏃‍♂️ AI 教練早安報告 ({today_str})：{names_str}\n\n{report_part}"
+        
+        # 直接輸出到 Console Log
+        print("\n" + "="*50)
+        print(final_report)
+        print("="*50 + "\n")
+        
+        # 寫入 Markdown 檔案以便 GitHub Actions commit
+        with open(REPORT_FILE, "w", encoding="utf-8") as f:
+            f.write(final_report)
         
         with open(LAST_ID_FILE, "w") as f:
             f.write(str(new_records[0].get('activityId')))
@@ -147,14 +148,10 @@ def main():
         with open(MEMORY_FILE, "w", encoding="utf-8") as f:
             f.write(new_memory)
             
-        print("✅ 大功告成！Discord 已送出，教練記憶已存檔。")
+        print(f"✅ 大功告成！報告已儲存至 {REPORT_FILE}，教練記憶已存檔。")
 
     except Exception as e:
         print(f"❌ AI 教練執行失敗：{e}")
-        try:
-            send_discord_notify(f"❌ AI 教練執行失敗：{e}")
-        except:
-            pass
 
 if __name__ == "__main__":
     main()
