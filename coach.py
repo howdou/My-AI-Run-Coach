@@ -113,7 +113,7 @@ def main():
         sheet = client.open(SHEET_NAME).sheet1
         
         existing_data = sheet.get_all_values()
-        sheet.append_row(fieldnames)
+        
         if not existing_data:
             sheet.append_row(fieldnames)
             existing_ids = []
