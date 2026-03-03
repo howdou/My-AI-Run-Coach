@@ -14,14 +14,14 @@ LAST_ID_FILE = "last_activity_id.txt"
 MEMORY_FILE = "coach_memory.txt" 
 
 # ==========================================
-# ❤️ 你的自訂心率區間 (請根據你 Fenix 8 Pro 內的實際設定修改這些數字！)
+# ❤️ 客製化 RQ 儲備心率區間 (Max 183, Rest 53)
 # ==========================================
 CUSTOM_HR_ZONES = {
-    "Z1_恢復區 (Recovery)": "135-153 bpm",
-    "Z2_有氧耐力區 (Endurance)": "154-166 bpm",
-    "Z3_節奏區 (Tempo)": "167-172 bpm",
-    "Z4_乳酸閾值區 (Threshold)": "173-183 bpm",
-    "Z5_無氧極限區 (Maximum)": "184+ bpm"
+    "Z1_輕鬆跑區 (59%-74%)": "130-149 bpm",
+    "Z2_馬拉松配速區 (74%-84%)": "150-162 bpm",
+    "Z3_乳酸閾值區 (84%-88%)": "163-167 bpm",
+    "Z4_無氧耐力區 (88%-95%)": "168-176 bpm",
+    "Z5_最大攝氧區 (95%+)": "177+ bpm"
 }
 # ==========================================
 
@@ -82,10 +82,7 @@ def main():
                 "avg_stride_length": summary.get('averageStrideLength') or act.get('averageStrideLength') or summary.get('avgStrideLength') or 0,
                 "avg_vertical_oscillation": summary.get('avgVerticalOscillation') or summary.get('averageVerticalOscillation') or act.get('avgVerticalOscillation') or 0,
                 "avg_ground_contact_time": summary.get('avgGroundContactTime') or summary.get('averageGroundContactTime') or act.get('avgGroundContactTime') or 0,
-                
-                # 🏃‍♂️ 嘗試抓取停留在各心率區間的時間 (如果有資料的話)
                 "time_in_hr_zones": summary.get('timeInHrZone') or summary.get('zoneDTOs') or "未提供區間停留時間",
-                
                 "laps": [{"distance_m": lap.get('distance', 0), 
                           "duration_s": lap.get('duration', 0), 
                           "avg_hr": lap.get('averageHR') or lap.get('averageHeartRateInBeatsPerMinute') or 0,
@@ -103,24 +100,27 @@ def main():
         tw_tz = timezone(timedelta(hours=8))
         today_str = datetime.now(tw_tz).strftime("%Y年%m月%d日")
         
+        # === 核心 Prompt 調整區 ===
         prompt = f"""
-        今天是 {today_str}。你是一位專業的越野跑與馬拉松教練。這是我最新累積的 {len(new_records)} 筆 Garmin Fenix 8 Pro 運動數據：{names_str}。
+        今天是 {today_str}。你是一位專業的馬拉松教練。這是我最新累積的 {len(new_records)} 筆 Garmin 運動數據：{names_str}。
 
-        【跑者的自訂心率區間】
+        【跑者的自訂心率區間 (基於 RQ 儲備心率公式)】
         {json.dumps(CUSTOM_HR_ZONES, ensure_ascii=False)}
 
         【上次的教練交接日誌（過去記憶）】
         {past_memory}
 
         任務指示：
-        考量我 161 cm 的身高，請嚴格比對我的「平均心率 (avg_hr)」與「分段心率 (laps avg_hr)」是否符合【跑者的自訂心率區間】的預期訓練效益。
-        綜合評估高階跑步動態（步頻、步距、垂直震幅、觸地時間），並結合「上次的教練交接日誌」判斷疲勞累積。
-        請推算距離 4 月 12 日的 30km 越野賽（1721m 爬升）及 4 月 26 日的半馬剩餘天數，給予符合當前週期的強度與步態控制建議。
-        補給需考量防脹氣好消化，賽後恢復請建議如何搭配鎂、鈣。
+        考量我 179 cm 的身高與 70 kg 的體重，請嚴格比對我的「平均心率 (avg_hr)」與「分段心率 (laps avg_hr)」是否符合上述【跑者的自訂心率區間】的預期訓練效益。
+        綜合評估高階跑步動態（步頻、步距、垂直震幅、觸地時間），判斷我的跑步經濟性，並結合「上次的教練交接日誌」判斷疲勞累積狀態。
+        
+        【重要目標賽事】
+        請推算距離 4 月 16 日的「國家地理半馬」（目標成績 1:40）及 11 月 15 日的「神戶馬拉松」（目標成績 3:30）剩餘天數。
+        根據當前所處的訓練週期（目前應著重半馬備戰，同時打好全馬有氧底子），給予相應的強度建議與步態控制建議。
 
         ⚠️ 輸出格式極度重要，請嚴格遵守以下結構（必須包含 ===MEMORY_START=== 分隔線）：
 
-        (這裡寫給跑者的 Discord 報告，多用條列式與 Emoji，總字數 2000 字內)
+        (這裡寫給跑者的 Discord 報告，多用條列式與 Emoji，語氣專業但帶點鼓勵，總字數 2000 字內)
         ===MEMORY_START===
         (這裡寫給明天你自己的交接備忘錄：簡述目前的累積疲勞度、心率區間表現、以及下次需要特別關注的指標。限 300 字以內，不需對跑者說話，這是你的內部筆記)
 
