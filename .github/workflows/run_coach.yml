@@ -2,9 +2,8 @@ name: Daily AI Run Coach
 
 on:
   schedule:
-    # 每天台灣時間早上 7:00 執行 (UTC 23:00)
     - cron: '0 23 * * *'
-  workflow_dispatch: # 允許手動點擊按鈕執行
+  workflow_dispatch: 
 
 jobs:
   analyze_garmin:
@@ -19,33 +18,28 @@ jobs:
           python-version: '3.11'
 
       - name: Install Dependencies
-        run: pip install garminconnect garth google-genai requests
+        # 移除了 requests 模組安裝
+        run: pip install garminconnect garth google-genai
 
       - name: Run Coach Script
         env:
           GARMIN_HASH: ${{ secrets.GARMIN_HASH }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # 移除了 DISCORD_WEBHOOK_URL
         run: |
-          # 設定最多重試 3 次
           for i in 1 2 3; do
             echo "▶️ 開始第 $i 次嘗試執行教練分析..."
-            
-            # 如果執行成功 (&& exit 0)，就直接跳出迴圈並標記成功
             python coach.py && exit 0
-            
-            # 如果失敗了，印出警告並等待 60 秒
             echo "⚠️ 第 $i 次執行失敗！等待 60 秒後自動重試..."
             sleep 60
           done
-          
-          # 如果 3 次都失敗，讓 Actions 顯示紅燈報錯停止
           echo "❌ 已經嘗試 3 次皆失敗，請檢查 API 狀態。"
           exit 1
 
-      - name: Commit Last Activity ID and Coach Memory
+      - name: Commit Files to GitHub
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'actions@github.com'
-          git add last_activity_id.txt coach_memory.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update tracker and coach memory" && git push)
+          # 將新的 latest_report.md 加入追蹤
+          git add last_activity_id.txt coach_memory.txt latest_report.md
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update tracker, coach memory, and latest report" && git push)
