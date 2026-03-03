@@ -2,9 +2,12 @@ name: Daily AI Run Coach
 
 on:
   workflow_dispatch: 
+  # 如果你確認沒問題了，隨時可以把這兩行註解拿掉恢復定時執行
+  # schedule:
+  #   - cron: '0 23 * * *'
 
 jobs:
-  analyze_garmin:
+  sync_garmin_to_sheets:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -16,28 +19,12 @@ jobs:
           python-version: '3.11'
 
       - name: Install Dependencies
-        # 移除了 requests 模組安裝
-        run: pip install garminconnect garth google-genai
+        # 新增了 gspread 與 google-auth
+        run: pip install garminconnect garth gspread google-auth
 
-      - name: Run Coach Script
+      - name: Run Data Sync Script
         env:
           GARMIN_HASH: ${{ secrets.GARMIN_HASH }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # 移除了 DISCORD_WEBHOOK_URL
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
-          for i in 1 2 3; do
-            echo "▶️ 開始第 $i 次嘗試執行教練分析..."
-            python coach.py && exit 0
-            echo "⚠️ 第 $i 次執行失敗！等待 60 秒後自動重試..."
-            sleep 60
-          done
-          echo "❌ 已經嘗試 3 次皆失敗，請檢查 API 狀態。"
-          exit 1
-
-      - name: Commit Files to GitHub
-        run: |
-          git config --global user.name 'GitHub Actions'
-          git config --global user.email 'actions@github.com'
-          # 將新的 latest_report.md 加入追蹤
-          git add last_activity_id.txt coach_memory.txt latest_report.md
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update tracker, coach memory, and latest report" && git push)
+          python coach.py
