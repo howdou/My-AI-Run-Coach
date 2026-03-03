@@ -53,6 +53,13 @@ def main():
         if not new_records:
             print("✅ 目前沒有新的運動紀錄。")
             return
+            
+        # 🟢 新增防爆機制：如果抓到超過 5 筆，只取最近的 5 筆來分析
+        if len(new_records) > 5:
+            print(f"⚠️ 發現 {len(new_records)} 筆新紀錄！為避免 API 超載，僅擷取最新的 5 筆。")
+            new_records = new_records[:5]
+        else:
+            print(f"🎉 發現 {len(new_records)} 筆新紀錄！正在整理數據...")
         
         print(f"🎉 發現 {len(new_records)} 筆新紀錄！正在整理數據...")
         payloads = []
