@@ -46,7 +46,7 @@ def main():
         splits = garmin_client.get_activity_splits(act_id)
         laps_data = splits.get('lapDTOs', []) if splits else []
 
-        # 定義所有要抓取的欄位 Key
+        # 定義所有要抓取的欄位 Key (Garmin JSON 原本的 Key)
         lap_keys = [
             'lapIndex', 'intensityType', 'startTimeGMT', 'distance', 'duration', 'movingDuration', 
             'elapsedDuration', 'elevationGain', 'elevationLoss', 'maxElevation', 'minElevation',
@@ -63,14 +63,33 @@ def main():
             'wktStepIndex', 'wktIndex', 'messageIndex'
         ]
         
-        fieldnames = ["Activity_ID", "Activity_Name", "Lap_Avg_Pace_Formatted", "Lap_GAP_Pace_Formatted"] + lap_keys
+        # 🟢 將 Header 轉換為全中文顯示
+        fieldnames = [
+            "活動 ID", "活動名稱", "單圈平均配速", "單圈平均坡度校正配速",
+            "圈數索引 (lapIndex)", "強度類型 (intensityType)", "開始時間 GMT (startTimeGMT)", 
+            "距離 公尺 (distance)", "持續時間 秒 (duration)", "移動時間 秒 (movingDuration)", 
+            "總經過時間 秒 (elapsedDuration)", "總爬升 公尺 (elevationGain)", "總下降 公尺 (elevationLoss)", 
+            "最高海拔 公尺 (maxElevation)", "最低海拔 公尺 (minElevation)",
+            "平均速度 m/s (averageSpeed)", "平均移動速度 m/s (averageMovingSpeed)", "最高速度 m/s (maxSpeed)", 
+            "卡路里 (calories)", "基礎代謝卡路里 (bmrCalories)",
+            "平均心率 (averageHR)", "最高心率 (maxHR)", "平均步頻 (averageRunCadence)", "最高步頻 (maxRunCadence)",
+            "平均溫度 (averageTemperature)", "最高溫度 (maxTemperature)", "最低溫度 (minTemperature)",
+            "平均功率 (averagePower)", "最大功率 (maxPower)", "最小功率 (minPower)", "標準化功率 (normalizedPower)", "總作功 (totalWork)",
+            "觸地時間 ms (groundContactTime)", "觸地時間平衡-左腳 % (groundContactBalanceLeft)", "步幅 cm (strideLength)",
+            "垂直震幅 cm (verticalOscillation)", "移動效率/垂直比例 % (verticalRatio)",
+            "最大垂直速度 m/s (maxVerticalSpeed)", "最大呼吸率 (maxRespirationRate)", "平均呼吸率 (avgRespirationRate)",
+            "訓練符合度分數 (directWorkoutComplianceScore)", "平均坡度校正速度 m/s (avgGradeAdjustedSpeed)",
+            "步速損失 (stepSpeedLoss)", "步速損失百分比 (stepSpeedLossPercent)",
+            "起點緯度 (startLatitude)", "起點經度 (startLongitude)", "終點緯度 (endLatitude)", "終點經度 (endLongitude)",
+            "訓練步驟索引 (wktStepIndex)", "訓練索引 (wktIndex)", "訊息索引 (messageIndex)"
+        ]
 
         # 準備要寫入 Google Sheets 的資料矩陣 (List of Lists)
         rows_to_insert = []
         if laps_data:
             for lap in laps_data:
                 row_list = [
-                    str(act_id), # 確保 ID 是字串格式
+                    str(act_id), 
                     act_name,
                     format_pace(lap.get('averageSpeed', 0)),
                     format_pace(lap.get('avgGradeAdjustedSpeed', 0))
@@ -83,7 +102,6 @@ def main():
             return
 
         print("☁️ 3. 正在連線至 Google Sheets 並寫入資料...")
-        # 設定 Google API 憑證
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
@@ -92,26 +110,20 @@ def main():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
         
-        # 開啟試算表與工作表
         sheet = client.open(SHEET_NAME).sheet1
         
-        # 讀取現有資料
         existing_data = sheet.get_all_values()
         
-        # 檢查是否為空表，如果是，先寫入 Header
         if not existing_data:
             sheet.append_row(fieldnames)
             existing_ids = []
         else:
-            # 🟢 防呆機制：確保這一個 row 裡面真的有資料 (長度 > 0)，才去抓 row[0]
             existing_ids = [str(row[0]) for row in existing_data if len(row) > 0]
             
-        # 檢查這筆 Activity_ID 是否已經寫入過，避免重複執行時重複寫入
         if str(act_id) in existing_ids:
             print(f"✅ 發現重複：活動 ID {act_id} 已經存在於試算表中，跳過寫入。")
             return
 
-        # 批次寫入所有圈數資料
         sheet.append_rows(rows_to_insert)
         
         print(f"✅ 大功告成！最新資料已成功同步至 Google 試算表 [{SHEET_NAME}]。")
