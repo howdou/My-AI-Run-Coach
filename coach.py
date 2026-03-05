@@ -25,26 +25,28 @@ def main():
         garmin_client = Garmin()
         garmin_client.garth = garth.client
         
-        print("🔍 2. 正在尋找最後一筆跑步紀錄...")
-        activities = garmin_client.get_activities(0, 10)
-        latest_run = None
-        
-        for act in activities:
-            if 'running' in act.get('activityType', {}).get('typeKey', '').lower():
-                latest_run = act
+        print("🔍 2. 正在取得所有跑步紀錄...")
+        all_running = []
+        start = 0
+        batch_size = 50
+        while True:
+            activities = garmin_client.get_activities(start, batch_size)
+            if not activities:
                 break
+            for act in activities:
+                if 'running' in act.get('activityType', {}).get('typeKey', '').lower():
+                    all_running.append(act)
+            if len(activities) < batch_size:
+                break
+            start += batch_size
 
-        if not latest_run:
-            print("✅ 最近的紀錄中找不到任何跑步資料。")
+        if not all_running:
+            print("✅ 找不到任何跑步資料。")
             return
-            
-        act_id = latest_run.get('activityId')
-        act_name = latest_run.get('activityName')
-        
-        print(f"🎉 找到最新跑步紀錄: {act_name}")
-        
-        splits = garmin_client.get_activity_splits(act_id)
-        laps_data = splits.get('lapDTOs', []) if splits else []
+
+        # 反轉為從舊到新的順序
+        all_running.reverse()
+        print(f"🎉 共找到 {len(all_running)} 筆跑步紀錄")
 
         # 定義所有要抓取的欄位 Key (Garmin JSON 原本的 Key)
         lap_keys = [
@@ -84,24 +86,7 @@ def main():
             "訓練步驟索引 (wktStepIndex)", "訓練索引 (wktIndex)", "訊息索引 (messageIndex)"
         ]
 
-        # 準備要寫入 Google Sheets 的資料矩陣 (List of Lists)
-        rows_to_insert = []
-        if laps_data:
-            for lap in laps_data:
-                row_list = [
-                    str(act_id), 
-                    act_name,
-                    format_pace(lap.get('averageSpeed', 0)),
-                    format_pace(lap.get('avgGradeAdjustedSpeed', 0))
-                ]
-                for key in lap_keys:
-                    row_list.append(lap.get(key, ""))
-                rows_to_insert.append(row_list)
-        else:
-            print("⚠️ 這筆活動沒有逐圈 (Lap) 資料。")
-            return
-
-        print("☁️ 3. 正在連線至 Google Sheets 並寫入資料...")
+        print("☁️ 3. 正在連線至 Google Sheets...")
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
@@ -116,17 +101,48 @@ def main():
         
         if not existing_data:
             sheet.append_row(fieldnames)
-            existing_ids = []
+            existing_ids = set()
         else:
-            existing_ids = [str(row[0]) for row in existing_data if len(row) > 0]
-            
-        if str(act_id) in existing_ids:
-            print(f"✅ 發現重複：活動 ID {act_id} 已經存在於試算表中，跳過寫入。")
-            return
+            existing_ids = set(str(row[0]) for row in existing_data if len(row) > 0)
 
-        sheet.append_rows(rows_to_insert)
-        
-        print(f"✅ 大功告成！最新資料已成功同步至 Google 試算表 [{SHEET_NAME}]。")
+        written_count = 0
+        skipped_count = 0
+
+        for i, run in enumerate(all_running, 1):
+            act_id = run.get('activityId')
+            act_name = run.get('activityName')
+
+            if str(act_id) in existing_ids:
+                skipped_count += 1
+                continue
+
+            print(f"📥 ({i}/{len(all_running)}) 正在處理: {act_name} (ID: {act_id})")
+
+            splits = garmin_client.get_activity_splits(act_id)
+            laps_data = splits.get('lapDTOs', []) if splits else []
+
+            if not laps_data:
+                print(f"  ⚠️ 這筆活動沒有逐圈 (Lap) 資料，跳過。")
+                continue
+
+            rows_to_insert = []
+            for lap in laps_data:
+                row_list = [
+                    str(act_id), 
+                    act_name,
+                    format_pace(lap.get('averageSpeed', 0)),
+                    format_pace(lap.get('avgGradeAdjustedSpeed', 0))
+                ]
+                for key in lap_keys:
+                    row_list.append(lap.get(key, ""))
+                rows_to_insert.append(row_list)
+
+            sheet.append_rows(rows_to_insert)
+            existing_ids.add(str(act_id))
+            written_count += 1
+
+        print(f"✅ 大功告成！共寫入 {written_count} 筆跑步紀錄，跳過 {skipped_count} 筆重複紀錄。")
+        print(f"   資料已同步至 Google 試算表 [{SHEET_NAME}]。")
 
     except Exception as e:
         print(f"❌ 腳本執行失敗：{e}")
