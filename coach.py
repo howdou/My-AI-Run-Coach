@@ -20,33 +20,53 @@ def format_pace(speed_mps):
 
 def main():
     try:
-        print("🔄 1. 正在連線至 Garmin...")
+        print("☁️ 1. 正在連線至 Google Sheets 取得最後一筆 ID...")
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds_dict = json.loads(GCP_CREDENTIALS_JSON)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet = client.open(SHEET_NAME).sheet1
+        
+        existing_data = sheet.get_all_values()
+        latest_sheet_id = 0
+        
+        # 尋找第一欄 (Activity ID) 的最大值，若無資料或只有表頭則預設為 0
+        if len(existing_data) > 1:
+            for row in existing_data[1:]:
+                # 確保該列有資料，且第一欄是數字，才進行比對
+                if len(row) > 0 and str(row[0]).isdigit():
+                    latest_sheet_id = max(latest_sheet_id, int(row[0]))
+                    
+        print(f"📌 目前 Sheet 中最大的 Activity ID 為: {latest_sheet_id}")
+
+        print("🔄 2. 正在連線至 Garmin...")
         garth.client.loads(GARMIN_HASH)
         garmin_client = Garmin()
         garmin_client.garth = garth.client
         
-        print("🔍 2. 正在取得所有跑步紀錄...")
-        all_running = []
-        start = 0
-        batch_size = 50
-        while True:
-            activities = garmin_client.get_activities(start, batch_size)
-            if not activities:
-                break
-            for act in activities:
-                if 'running' in act.get('activityType', {}).get('typeKey', '').lower():
-                    all_running.append(act)
-            if len(activities) < batch_size:
-                break
-            start += batch_size
+        print("🔍 3. 正在尋找新的跑步紀錄...")
+        # 抓取較多筆數 (30筆)，確保不會因為多天沒執行而漏接資料
+        activities = garmin_client.get_activities(0, 30)
+        new_runs = []
+        
+        for act in activities:
+            if 'running' in act.get('activityType', {}).get('typeKey', '').lower():
+                act_id = int(act.get('activityId', 0))
+                # 只有大於 Sheet 中最大 ID 的紀錄才加入
+                if act_id > latest_sheet_id:
+                    new_runs.append(act)
 
-        if not all_running:
-            print("✅ 找不到任何跑步資料。")
+        if not new_runs:
+            print("✅ 目前沒有比 Sheet 內更新的跑步資料，跳過同步。")
             return
-
-        # 反轉為從舊到新的順序
-        all_running.reverse()
-        print(f"🎉 共找到 {len(all_running)} 筆跑步紀錄")
+            
+        print(f"🎉 發現 {len(new_runs)} 筆新跑步紀錄！準備抓取詳細資料...")
+        
+        # 將新紀錄反轉，確保寫入 Google Sheets 時是依照「由舊到新」的時間順序
+        new_runs.reverse()
 
         # 定義所有要抓取的欄位 Key (Garmin JSON 原本的 Key)
         lap_keys = [
@@ -65,7 +85,6 @@ def main():
             'wktStepIndex', 'wktIndex', 'messageIndex'
         ]
         
-        # 🟢 將 Header 轉換為全中文顯示
         fieldnames = [
             "活動 ID", "活動名稱", "單圈平均配速", "單圈平均坡度校正配速",
             "圈數索引 (lapIndex)", "強度類型 (intensityType)", "開始時間 GMT (startTimeGMT)", 
@@ -86,46 +105,19 @@ def main():
             "訓練步驟索引 (wktStepIndex)", "訓練索引 (wktIndex)", "訊息索引 (messageIndex)"
         ]
 
-        print("☁️ 3. 正在連線至 Google Sheets...")
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        creds_dict = json.loads(GCP_CREDENTIALS_JSON)
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(creds)
-        
-        sheet = client.open(SHEET_NAME).sheet1
-        
-        existing_data = sheet.get_all_values()
-        
-        if not existing_data:
-            sheet.append_row(fieldnames)
-            existing_ids = set()
-        else:
-            existing_ids = set(str(row[0]) for row in existing_data if len(row) > 0)
-
-        written_count = 0
-        skipped_count = 0
-
-        for i, run in enumerate(all_running, 1):
-            act_id = run.get('activityId')
-            act_name = run.get('activityName')
-
-            if str(act_id) in existing_ids:
-                skipped_count += 1
-                continue
-
-            print(f"📥 ({i}/{len(all_running)}) 正在處理: {act_name} (ID: {act_id})")
-
+        rows_to_insert = []
+        for act in new_runs:
+            act_id = act.get('activityId')
+            act_name = act.get('activityName')
+            print(f"  - 處理中: {act_name} (ID: {act_id})")
+            
             splits = garmin_client.get_activity_splits(act_id)
             laps_data = splits.get('lapDTOs', []) if splits else []
-
+            
             if not laps_data:
-                print(f"  ⚠️ 這筆活動沒有逐圈 (Lap) 資料，跳過。")
+                print(f"    ⚠️ 此活動沒有逐圈 (Lap) 資料，已略過。")
                 continue
-
-            rows_to_insert = []
+                
             for lap in laps_data:
                 row_list = [
                     str(act_id), 
@@ -137,12 +129,13 @@ def main():
                     row_list.append(lap.get(key, ""))
                 rows_to_insert.append(row_list)
 
+        if rows_to_insert:
+            print("☁️ 4. 正在批次寫入至 Google Sheets...")
+            if not existing_data:
+                sheet.append_row(fieldnames)
+                
             sheet.append_rows(rows_to_insert)
-            existing_ids.add(str(act_id))
-            written_count += 1
-
-        print(f"✅ 大功告成！共寫入 {written_count} 筆跑步紀錄，跳過 {skipped_count} 筆重複紀錄。")
-        print(f"   資料已同步至 Google 試算表 [{SHEET_NAME}]。")
+            print(f"✅ 大功告成！成功同步 {len(new_runs)} 筆活動至 [{SHEET_NAME}]。")
 
     except Exception as e:
         print(f"❌ 腳本執行失敗：{e}")
