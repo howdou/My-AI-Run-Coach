@@ -2,12 +2,42 @@ import os
 import json
 import garth
 import gspread
+import requests
 from garminconnect import Garmin
 from google.oauth2.service_account import Credentials
 
 GARMIN_HASH = os.environ.get("GARMIN_HASH")
 GCP_CREDENTIALS_JSON = os.environ.get("GCP_CREDENTIALS")
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+LINE_USER_ID = os.environ.get("LINE_USER_ID")
 SHEET_NAME = "Garmin_Running_Data"
+
+def send_line_message(message_text):
+    """使用 LINE Messaging API 發送推播通知"""
+    if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_USER_ID:
+        print("未設定 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_USER_ID，略過通知。")
+        return
+        
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+    }
+    data = {
+        "to": LINE_USER_ID,
+        "messages": [
+            {
+                "type": "text",
+                "text": message_text
+            }
+        ]
+    }
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code != 200:
+            print(f"⚠️ LINE 通知發送失敗: {response.status_code}, {response.text}")
+    except Exception as e:
+        print(f"⚠️ LINE 通知發送發生錯誤: {e}")
 
 def format_pace(speed_mps):
     """將公尺/秒轉換為 分:秒/公里 的配速格式"""
@@ -36,7 +66,6 @@ def main():
         # 尋找第一欄 (Activity ID) 的最大值，若無資料或只有表頭則預設為 0
         if len(existing_data) > 1:
             for row in existing_data[1:]:
-                # 確保該列有資料，且第一欄是數字，才進行比對
                 if len(row) > 0 and str(row[0]).isdigit():
                     latest_sheet_id = max(latest_sheet_id, int(row[0]))
                     
@@ -48,14 +77,12 @@ def main():
         garmin_client.garth = garth.client
         
         print("🔍 3. 正在尋找新的跑步紀錄...")
-        # 抓取較多筆數 (30筆)，確保不會因為多天沒執行而漏接資料
         activities = garmin_client.get_activities(0, 30)
         new_runs = []
         
         for act in activities:
             if 'running' in act.get('activityType', {}).get('typeKey', '').lower():
                 act_id = int(act.get('activityId', 0))
-                # 只有大於 Sheet 中最大 ID 的紀錄才加入
                 if act_id > latest_sheet_id:
                     new_runs.append(act)
 
@@ -64,11 +91,8 @@ def main():
             return
             
         print(f"🎉 發現 {len(new_runs)} 筆新跑步紀錄！準備抓取詳細資料...")
-        
-        # 將新紀錄反轉，確保寫入 Google Sheets 時是依照「由舊到新」的時間順序
         new_runs.reverse()
 
-        # 定義所有要抓取的欄位 Key (Garmin JSON 原本的 Key)
         lap_keys = [
             'lapIndex', 'intensityType', 'startTimeGMT', 'distance', 'duration', 'movingDuration', 
             'elapsedDuration', 'elevationGain', 'elevationLoss', 'maxElevation', 'minElevation',
@@ -106,6 +130,8 @@ def main():
         ]
 
         rows_to_insert = []
+        synced_names = [] 
+        
         for act in new_runs:
             act_id = act.get('activityId')
             act_name = act.get('activityName')
@@ -117,6 +143,8 @@ def main():
             if not laps_data:
                 print(f"    ⚠️ 此活動沒有逐圈 (Lap) 資料，已略過。")
                 continue
+                
+            synced_names.append(act_name)
                 
             for lap in laps_data:
                 row_list = [
@@ -135,10 +163,16 @@ def main():
                 sheet.append_row(fieldnames)
                 
             sheet.append_rows(rows_to_insert)
-            print(f"✅ 大功告成！成功同步 {len(new_runs)} 筆活動至 [{SHEET_NAME}]。")
+            
+            success_msg = f"✅ Garmin 同步成功！\n新增了 {len(new_runs)} 筆跑步紀錄：\n" + "、".join(synced_names)
+            print(success_msg)
+            send_line_message(success_msg)
 
     except Exception as e:
-        print(f"❌ 腳本執行失敗：{e}")
+        error_msg = f"❌ Garmin 腳本執行失敗：\n{e}"
+        print(error_msg)
+        send_line_message(error_msg)
+        raise e
 
 if __name__ == "__main__":
     main()
