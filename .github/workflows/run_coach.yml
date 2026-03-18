@@ -2,9 +2,9 @@ name: Daily AI Run Coach
 
 on:
   workflow_dispatch: 
-  # 如果你確認沒問題了，隨時可以把這兩行註解拿掉恢復定時執行
-  # schedule:
-  #   - cron: '0 23 * * *'
+  schedule:
+    # 這裡使用的是 UTC 時間，0 1 * * * 代表 UTC 凌晨 1 點，也就是台灣時間早上 9 點
+    - cron: '0 1 * * *'
 
 jobs:
   sync_garmin_to_sheets:
