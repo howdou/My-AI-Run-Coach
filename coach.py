@@ -77,7 +77,7 @@ def main():
         garmin_client.garth = garth.client
         
         print("🔍 3. 正在尋找新的跑步紀錄...")
-        activities = garmin_client.get_activities(0, 30)
+        activities = garmin_client.get_activities(0, 10)
         new_runs = []
         
         for act in activities:
