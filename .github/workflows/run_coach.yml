@@ -3,12 +3,12 @@ name: Daily AI Run Coach
 on:
   workflow_dispatch: 
   schedule:
-    # 這裡使用的是 UTC 時間，0 1 * * * 代表 UTC 凌晨 1 點，也就是台灣時間早上 9 點
     - cron: '0 1 * * *'
 
 jobs:
   sync_garmin_to_sheets:
-    runs-on: ubuntu-latest
+    # 🌟 關鍵修改：把 ubuntu-latest 換成 macos-latest 避開 IP 封鎖
+    runs-on: macos-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -19,8 +19,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Dependencies
-        # 新增了 gspread 與 google-auth
-        run: pip install garminconnect garth gspread google-auth
+        run: pip install garminconnect garth gspread google-auth requests
 
       - name: Run Data Sync Script
         env:
