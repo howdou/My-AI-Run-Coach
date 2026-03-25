@@ -7,8 +7,8 @@ on:
 
 jobs:
   sync_garmin_to_sheets:
-    # 🌟 關鍵修改：把 ubuntu-latest 換成 macos-latest 避開 IP 封鎖
-    runs-on: macos-latest
+    # 既然有了 WARP 護體，我們換回速度最快且穩定的 ubuntu 伺服器
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -19,7 +19,26 @@ jobs:
           python-version: '3.11'
 
       - name: Install Dependencies
-        run: pip install garminconnect garth gspread google-auth requests
+        # 🌟 關鍵：必須安裝 requests[socks]，Python 才能看懂 socks5 協議
+        run: pip install garminconnect garth gspread google-auth requests[socks]
+
+      # 🛡️ 隱身斗篷：安裝 Cloudflare WARP 並啟動 Socks5 Proxy 模式
+      - name: Setup Cloudflare WARP Proxy
+        run: |
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update
+          sudo apt-get install -y cloudflare-warp
+          
+          # 初始化並設定為 Proxy 模式
+          warp-cli --accept-tos registration new
+          warp-cli --accept-tos mode proxy
+          warp-cli --accept-tos proxy port 40000
+          warp-cli --accept-tos connect
+          
+          echo "等待 WARP 連線..."
+          sleep 5
+          echo "WARP Proxy 啟動完成！"
 
       - name: Run Data Sync Script
         env:
@@ -27,5 +46,16 @@ jobs:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          # 🛡️ 強制 Python 透過 WARP 的 Socks5 通道連線 Garmin
+          https_proxy: socks5://127.0.0.1:40000
+          http_proxy: socks5://127.0.0.1:40000
         run: |
-          python coach.py
+          # 加上你朋友的 3 次重試機制，增加網路不穩時的容錯率
+          for i in 1 2 3; do
+            echo "▶️ 開始第 $i 次嘗試同步資料..."
+            python coach.py && exit 0
+            echo "⚠️ 第 $i 次執行失敗！等待 60 秒後自動重試..."
+            sleep 60
+          done
+          echo "❌ 已經嘗試 3 次皆失敗，請檢查 API 狀態。"
+          exit 1
