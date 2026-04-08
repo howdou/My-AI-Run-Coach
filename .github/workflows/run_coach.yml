@@ -19,7 +19,7 @@ jobs:
 
       - name: Install Dependencies
         # 🌟 移除 garth，並強制升級 garminconnect 確保拿到 3.0+ 版本
-        run: pip install "garminconnect>=3.0.0" gspread google-auth requests[socks]
+        run: pip install "garminconnect>=0.3.0" curl_cffi ua-generator gspread google-auth requests[socks]
 
       # 🛡️ 隱身斗篷：安裝 Cloudflare WARP 並啟動 Socks5 Proxy 模式
       - name: Setup Cloudflare WARP Proxy
