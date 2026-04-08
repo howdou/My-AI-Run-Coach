@@ -1,12 +1,13 @@
 import os
 import json
-import garth
 import gspread
 import requests
 from garminconnect import Garmin
 from google.oauth2.service_account import Credentials
 
-GARMIN_HASH = os.environ.get("GARMIN_HASH")
+# 改為讀取 Email 與 Password
+GARMIN_EMAIL = os.environ.get("GARMIN_EMAIL")
+GARMIN_PASSWORD = os.environ.get("GARMIN_PASSWORD")
 GCP_CREDENTIALS_JSON = os.environ.get("GCP_CREDENTIALS")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_USER_ID = os.environ.get("LINE_USER_ID")
@@ -72,9 +73,9 @@ def main():
         print(f"📌 目前 Sheet 中最大的 Activity ID 為: {latest_sheet_id}")
 
         print("🔄 2. 正在連線至 Garmin...")
-        garth.client.loads(GARMIN_HASH)
-        garmin_client = Garmin()
-        garmin_client.garth = garth.client
+        # 新版使用 email 與密碼初始化並登入 (底層會自動處理 token)
+        garmin_client = Garmin(GARMIN_EMAIL, GARMIN_PASSWORD)
+        garmin_client.login()
         
         print("🔍 3. 正在尋找新的跑步紀錄...")
         activities = garmin_client.get_activities(0, 10)
