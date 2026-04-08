@@ -7,7 +7,6 @@ on:
 
 jobs:
   sync_garmin_to_sheets:
-    # 既然有了 WARP 護體，我們換回速度最快且穩定的 ubuntu 伺服器
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -19,8 +18,8 @@ jobs:
           python-version: '3.11'
 
       - name: Install Dependencies
-        # 🌟 關鍵：必須安裝 requests[socks]，Python 才能看懂 socks5 協議
-        run: pip install garminconnect garth gspread google-auth requests[socks]
+        # 🌟 移除 garth，並強制升級 garminconnect 確保拿到 3.0+ 版本
+        run: pip install "garminconnect>=3.0.0" gspread google-auth requests[socks]
 
       # 🛡️ 隱身斗篷：安裝 Cloudflare WARP 並啟動 Socks5 Proxy 模式
       - name: Setup Cloudflare WARP Proxy
@@ -40,9 +39,20 @@ jobs:
           sleep 5
           echo "WARP Proxy 啟動完成！"
 
+      # 🌟 新增步驟：準備 ~/.garminconnect 資料夾讓新版套件讀寫 token
+      - name: Set up Garmin Tokens
+        run: |
+          mkdir -p ~/.garminconnect
+          # 如果你有在 GitHub Secrets 設定 GARMIN_TOKENS_JSON，則寫入檔案
+          if [ -n "${{ secrets.GARMIN_TOKENS_JSON }}" ]; then
+            echo "${{ secrets.GARMIN_TOKENS_JSON }}" > ~/.garminconnect/garmin_tokens.json
+          fi
+
       - name: Run Data Sync Script
         env:
-          GARMIN_HASH: ${{ secrets.GARMIN_HASH }}
+          # 替換為你的帳號與密碼 (需前往 GitHub Secrets 新增)
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
